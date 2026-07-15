@@ -1,0 +1,25 @@
+{
+  "name": "qinghome2",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "QingHome2 - 动态个人主页（D1 + 管理后台）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "dev:local": "npm run build && wrangler dev --local",
+    "db:local": "wrangler d1 execute qinghome-db --local --file=schema.sql"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0",
+    "wrangler": "^4.103.0"
+  }
+}
