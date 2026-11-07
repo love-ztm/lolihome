@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useSite } from '../context/SiteContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { FaIcon, IconSun, IconMoon, IconMenu, IconClose } from './Icons.jsx';
+import { FaIcon, IconSun, IconMoon, IconMenu, IconClose, IconExternal } from './Icons.jsx';
 
 export default function Header() {
   const { config } = useSite();
@@ -11,18 +11,11 @@ export default function Header() {
   const nav = config?.navItems || [];
   const brand = config?.profile?.brand || 'Luoli';
   const [menuOpen, setMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('qinghome2_theme') || 'dark');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
-    window.addEventListener('scroll', onScroll);
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
@@ -41,11 +34,11 @@ export default function Header() {
     navigate('/');
   };
 
-  // 过滤掉"首页"导航项（因为点击会回到自身）
+  // 过滤掉"首页"导航项
   const visibleNav = nav.filter(item => item.section_id !== 'home');
 
   return (
-    <header className={`header ${scrolled ? 'header--scrolled' : ''}`}>
+    <header className="header">
       <div className="header__inner">
         {/* Logo */}
         <a href="/" className="header__brand" onClick={e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
@@ -55,23 +48,35 @@ export default function Header() {
 
         {/* 导航菜单 */}
         <nav className={`header__nav ${menuOpen ? 'is-open' : ''}`}>
-          {visibleNav.map(item => (
-            <button
-              key={item.section_id || item.id}
-              className="header__link"
-              onClick={() => scrollTo(item.section_id)}
-            >
-              {item.label === '初遇' && <FaIcon icon="fa-solid fa-house" size={13} />}
-              {item.label === '记录' && <FaIcon icon="fa-solid fa-feather" size={13} />}
-              {item.label === '创造' && <FaIcon icon="fa-solid fa-code" size={13} />}
-              {item.label === '世界' && <FaIcon icon="fa-solid fa-compass" size={13} />}
-              {item.label === '抵达' && <FaIcon icon="fa-solid fa-envelope" size={13} />}
-              {item.label !== '初遇' && item.label !== '记录' && item.label !== '创造' && item.label !== '世界' && item.label !== '抵达' && (
-                item.icon && <FaIcon icon={item.icon} size={13} />
-              )}
-              <span>{item.label}</span>
-            </button>
-          ))}
+          {visibleNav.map(item => {
+            // 有 url 则渲染为外链，否则按 section_id 滚动
+            if (item.url) {
+              return (
+                <a
+                  key={item.id || item.label}
+                  className="header__link"
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {item.icon && <FaIcon icon={item.icon} size={13} />}
+                  <span>{item.label}</span>
+                  <IconExternal size={11} />
+                </a>
+              );
+            }
+            return (
+              <button
+                key={item.section_id || item.id}
+                className="header__link"
+                onClick={() => scrollTo(item.section_id)}
+              >
+                {item.icon && <FaIcon icon={item.icon} size={13} />}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         {/* 右侧操作区 */}

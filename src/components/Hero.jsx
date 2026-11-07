@@ -1,11 +1,16 @@
 import { useSite } from '../context/SiteContext.jsx';
 import { FaIcon, IconArrow, IconMail } from './Icons.jsx';
+import Snowfall from './Snowfall.jsx';
 
 export default function Hero() {
   const { config } = useSite();
   const p = config?.profile || {};
   const statsList = config?.stats || [];
   const initials = (p.name || 'L').slice(0, 2).toUpperCase();
+
+  // 动态背景图
+  const bgLight = p.bg_light || 'https://cdn.jsdelivr.net/gh/yutian81/cdn/ink-mountain-light.png';
+  const bgDark = p.bg_dark || 'https://cdn.jsdelivr.net/gh/yutian81/cdn/ink-mountain-dark.png';
 
   return (
     <section className="hero" id="home">
@@ -14,6 +19,16 @@ export default function Hero() {
         <div className="hero__blob hero__blob--2" />
         <div className="hero__grid" />
       </div>
+
+      {/* 背景图：亮色/暗色各一张 */}
+      <div className="hero__bg-img hero__bg-img--light" style={{ backgroundImage: `url("${bgLight}")` }} />
+      <div className="hero__bg-img hero__bg-img--dark" style={{ backgroundImage: `url("${bgDark}")` }} />
+
+      {/* 文字区渐变遮罩，提升可读性 */}
+      <div className="hero__shade" aria-hidden="true" />
+
+      {/* 飘雪效果 */}
+      <Snowfall />
 
       <div className="hero__inner">
         {/* 左侧文字 */}

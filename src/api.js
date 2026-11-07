@@ -41,5 +41,9 @@ export const blogApi = crud('/api/admin/config/blog');
 export const projectsApi = crud('/api/admin/config/projects');
 export const resourcesApi = crud('/api/admin/config/resources');
 export const socialsApi = crud('/api/admin/config/socials');
+export const blogSourcesApi = crud('/api/admin/config/blogSources');
+export const githubSourcesApi = crud('/api/admin/config/githubSources');
 
 export const fetchGitHubStars = (repos) => request(`/api/github-stars?repos=${repos.join(',')}`);
+export const fetchBlogPosts = () => request('/api/public/blog-posts');
+export const fetchGitHubRepos = () => request('/api/public/github-repos');

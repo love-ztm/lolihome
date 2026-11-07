@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS profile (
   tagline TEXT DEFAULT '',
   bio TEXT DEFAULT '',
   email TEXT DEFAULT '',
-  status TEXT DEFAULT 'available'
+  status TEXT DEFAULT 'available',
+  bg_light TEXT DEFAULT '',
+  bg_dark TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS stats (
@@ -83,6 +85,7 @@ CREATE TABLE IF NOT EXISTS nav_items (
   label TEXT DEFAULT '',
   icon TEXT DEFAULT '',
   section_id TEXT DEFAULT '',
+  url TEXT DEFAULT '',
   sort_order INTEGER DEFAULT 0
 );
 
@@ -90,6 +93,35 @@ CREATE TABLE IF NOT EXISTS nav_items (
 CREATE TABLE IF NOT EXISTS gh_stars_cache (
   repo TEXT PRIMARY KEY,
   stars INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- 博客源配置（RSS/Atom 地址，多行，每行一个）
+CREATE TABLE IF NOT EXISTS blog_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT DEFAULT '',
+  url TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0
+);
+
+-- 博客文章拉取缓存
+CREATE TABLE IF NOT EXISTS blog_fetch_cache (
+  source TEXT PRIMARY KEY,
+  posts TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- GitHub 项目源配置（用户名，支持多个）
+CREATE TABLE IF NOT EXISTS github_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0
+);
+
+-- GitHub 仓库拉取缓存
+CREATE TABLE IF NOT EXISTS github_repos_cache (
+  username TEXT PRIMARY KEY,
+  repos TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 

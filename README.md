@@ -1,21 +1,33 @@
-# QingHome
+# LuoliHome
 
-> 动态个人主页 — 基于 React + Vite + Cloudflare Workers (D1 + Static Assets)  
+> 动态个人主页 — 基于 React + Vite + Cloudflare Workers (D1 + Static Assets)
 > 所有配置由 D1 数据库驱动，提供可视化管理后台
+
+## About
+
+**LuoliHome**（原名 QingHome）是洛璃的个人主页项目。水墨国风 × 现代卡片式设计，暗色武侠大图背景、飘雪氛围、头像旋转光环，配合毛玻璃质感的简洁导航。
+
+首页内容**全自动**：博客文章从 RSS/Atom 源自动拉取，精选项目从 GitHub 仓库自动拉取——发文章、传代码，主页自动同步，无需手工维护。
+
+- 线上演示：https://ztmss.com
+- 仓库地址：https://github.com/love-ztm/lolihome
 
 ---
 
 ## ✨ 特性
 
-- 🎨 **大气简约 · 卡片式设计**：渐变 Hero、毛玻璃导航、悬浮卡片、微交互动画
-- 🌗 **明暗双主题**：跟随系统偏好，一键切换，localStorage 持久化，零白屏闪烁
-- 🖼 **Font Awesome 图标**：CDN 加载 1500+ 免费图标，数据里直接写 class 即可更换
-- ⚡ **轻量产物**：JS ≈185 KB（gzip ≈59 KB），CSS ≈16 KB（gzip ≈3.9 KB）
+- 🎨 **水墨国风卡片设计**：渐变 Hero、旋转光环头像、毛玻璃文字遮罩、悬浮卡片、滚动渐入动画
+- 🌗 **明暗双主题**：一键切换，localStorage 持久化，亮暗各自匹配遮罩与背景
+- 📡 **博客文章自动拉取**：后台配置 RSS/Atom 地址（支持 2~3 个源合并），Worker 解析 + D1 缓存 1 小时，按时间倒序展示
+- 🐙 **GitHub 项目自动拉取**：后台填用户名即可，自动按 Star 排序、过滤 Fork、匹配语言颜色（内置 27 种语言配色）
+- 🖼 **背景图后台可配**：亮色/暗色背景图分别设置，走数据库驱动
+- 🧭 **导航外链支持**：导航项可填外链地址（新窗口 + 外链图标），或滚动到页面区块
+- 🔗 **Favicon 跟随头像**：后台改头像，浏览器标签图标自动同步
+- ⚡ **轻量产物**：JS ≈195 KB（gzip ≈62 KB），CSS ≈21 KB（gzip ≈5 KB）
 - 📱 **完全响应式**：桌面 3 列 → 平板 2 列 → 手机 1 列，含汉堡菜单
 - 🚀 **边缘部署**：Cloudflare Workers + Static Assets，全球 300+ 节点 CDN
-- 🗄️ **D1 数据库驱动**：所有配置存储在 D1 中，而非硬编码
-- 🔐 **管理后台**：`/admin` 路径进入，支持可视化编辑所有配置
-- 👤 **管理员认证**：用户名 + 密码登录，Bearer Token 会话（7 天有效期）
+- 🗄️ **D1 数据库驱动**：所有配置存储在 D1 中，支持老表自动迁移（ALTER TABLE 兜底）
+- 🔐 **管理后台**：`/admin` 路径进入，九个面板可视化编辑，Bearer Token 会话（7 天有效期）
 
 ---
 
@@ -47,47 +59,39 @@ npm run dev
 
 > ⚠️ 无需手动设置任何环境变量，首次访问 `/admin/login` 时会自动引导创建管理员账号。
 
----
-
-### 手动部署（Cloudflare Dashboard）
-
-- Fork 本仓库
-- 登录 [Cloudflare](https://dash.cloudflare.com/) 后台
-- `Workers 和 Pages` → `创建应用程序` → `连接 Git`，选择 fork 的仓库
-- **项目名称**：`qinghome`
-- **构建命令**：`npm run build`
-- **部署命令**：`npm run deploy`
-- 其他默认，点击**部署**
-- 等待部署完成，绑定一个自定义域名
-
-### 自动部署（CLI）
-
-#### Step 1 — 登录 Cloudflare
+### 手动部署（CLI）
 
 ```bash
+# Step 1 — 登录 Cloudflare（会弹出浏览器授权）
 npx wrangler login
-```
 
-#### Step 2 — 创建 D1 数据库
-
-```bash
+# Step 2 — 创建 D1 数据库
 npx wrangler d1 create qinghome-db
-```
 
-执行后无需手动更改 `wrangler.toml`（Wrangler v4 自动解析）。
+# Step 3 — 应用数据库结构
+npx wrangler d1 execute qinghome-db --remote --file=schema.sql
 
-#### Step 3 — 构建 + 部署
-
-```bash
+# Step 4 — 构建 + 部署
 npm run deploy
 ```
 
 首次部署成功后，终端会输出访问地址：
 
 ```
-✨ Successfully published your script to
+✨ Successfully deployed
 https://qinghome.<你的子域>.workers.dev
 ```
+
+> 💡 `wrangler.toml` 中的 `account_id` 建议改成你自己的，可避免多账号登录时部署到错误账号。
+
+### 手动部署（Cloudflare Dashboard）
+
+- Fork 本仓库
+- 登录 [Cloudflare](https://dash.cloudflare.com/) 后台
+- `Workers 和 Pages` → `创建应用程序` → `连接 Git`，选择 fork 的仓库
+- **构建命令**：`npm run build`
+- **部署命令**：`npm run deploy`
+- 部署完成后绑定 D1 数据库（绑定名 `DB`）
 
 ---
 
@@ -95,37 +99,35 @@ https://qinghome.<你的子域>.workers.dev
 
 ### 创建管理员
 
-1. 浏览器打开 `https://qinghome.<你的子域>.workers.dev` 或你的自定义域名，点击右上角 **「登录后台」** 按钮
-2. 首次访问会自动显示 **「创建管理员」** 注册表单
-3. 输入用户名和密码，点击「创建管理员并登录」
-4. 创建成功后**自动登录**，进入管理仪表盘
-5. 所有配置均可在线编辑，修改后首页实时生效
+1. 打开站点，点击右上角 **「登录后台」**
+2. 首次访问自动显示 **「创建管理员」** 注册表单
+3. 创建成功后自动登录，进入管理仪表盘
 
-### 公开首页
-
-访问 `/` 查看你的个人主页，包含：
-
-- **Hero 首屏**：头像、名称、简介、统计胶囊
-- **博客区**：文章列表
-- **项目区**：开源项目卡片
-- **资源区**：分类资源分享
-- **社交链接**：GitHub / Telegram / 邮箱等
-
-### 管理后台
-
-访问 `/admin` 进入后台，有七个设置面板：
+### 后台面板一览（/admin）
 
 | 面板 | 可编辑内容 |
 |------|-----------|
-| 📋 个人资料 | 名称、品牌、头像 URL、标题、副标题、简介、邮箱、状态 |
+| 📋 个人资料 | 名称、品牌、头像 URL、标题、副标题、简介、邮箱、状态、**亮/暗背景图** |
 | 📊 统计胶囊 | Hero 区域的统计胶囊（可增删改） |
-| 🧭 站点导航 | 顶部导航菜单项（可增删改） |
-| 📝 博客文章 | 博客精选文章（可增删改） |
-| 💻 项目仓库 | 开源项目卡片（可增删改） |
+| 🧭 站点导航 | 顶部导航菜单项，**支持外链地址**（留空则滚动到区块） |
+| 📝 博客文章 | 手动文章列表（配置博客源后自动列表优先生效） |
+| 📡 博客源 | **RSS/Atom 地址**，支持多个源自动合并、按时间排序、1 小时缓存 |
+| 💻 项目仓库 | 手动项目卡片（配置 GitHub 源后自动列表优先生效） |
+| 🐙 GitHub 项目源 | **GitHub 用户名**，自动拉取仓库、按 Star 排序、过滤 Fork |
 | 🔗 公益站点 | 分类资源链接（可增删改） |
 | 🌐 联系方式 | 社交媒体链接（可增删改） |
+| 🔑 修改密码 | 管理员密码修改 |
 
-> 💡 **提示**：图标使用 Font Awesome 的完整 class（如 `fa-brands fa-github`），从 [fontawesome.com/search?ic=free-collection](https://fontawesome.com/search?ic=free-collection) 搜索复制即可。
+### 博客自动拉取配置
+
+- Hexo：安装 `hexo-generator-feed` 插件生成 `/atom.xml`
+- WordPress：默认自带 `/feed`
+- 后台「博客源」→ 新增 → 填名称和 RSS 地址即可
+
+### GitHub 项目自动拉取配置
+
+- 后台「GitHub 项目源」→ 新增 → 填 GitHub 用户名即可
+- 自动显示前 6 个仓库（按 Star 倒序、过滤 Fork、语言颜色自动匹配）
 
 ---
 
@@ -136,16 +138,14 @@ https://qinghome.<你的子域>.workers.dev
 ```css
 /* 亮色主题 */
 :root, [data-theme='light'] {
-  --brand: #6366f1;     /* 主品牌色（紫蓝） */
-  --brand-2: #8b5cf6;   /* 渐变副色 */
-  --accent: #06b6d4;    /* 强调色（青色） */
+  --brand: #7c6ed8;     /* 主品牌色（紫蓝） */
+  --brand-2: #9d7fe0;   /* 渐变副色 */
 }
 
 /* 暗色主题 */
 [data-theme='dark'] {
-  --brand: #818cf8;
-  --brand-2: #a78bfa;
-  --accent: #22d3ee;
+  --brand: #8b7ff0;
+  --brand-2: #b098eb;
 }
 ```
 
@@ -159,5 +159,5 @@ MIT
 
 ## 🙏 致谢
 
-- 我的脑洞
-- hermes + deepseek v4
+- 基于 [QingHome](https://github.com/yutian81/QingHome) 二次开发
+- hermes + deepseek v4 协助编写

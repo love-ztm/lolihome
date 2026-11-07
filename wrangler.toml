@@ -1,6 +1,7 @@
 name = "qinghome"
 main = "worker/index.js"
 compatibility_date = "2024-12-01"
+account_id = "0d2a365a60ca7a9dc28f51a98412dad6"
 
 # D1 数据库（Wrangler v4 自动解析ID）
 [[d1_databases]]

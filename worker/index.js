@@ -7,12 +7,13 @@ let _initialized = false;
 
 // ── 默认种子数据 ──
 const DEFAULT_PROFILE = {
-  name: '青云志主页', brand: 'QingHome',
-  avatar: 'https://pan.811520.xyz/icon/logo128.webp',
+  name: '洛璃♥主页', brand: 'QingHome',
+  avatar: 'https://img.ztmss.com/file/1786870547270_%E5%8D%9A%E5%AE%A2%E6%96%87%E7%AB%A0%E9%A1%B5%E4%B8%AD%E6%96%87%E5%91%BD%E5%90%8D%E8%BD%AC%E7%A0%81%E9%97%AE%E9%A2%98%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95.png',
   title: '一个又菜又爱玩的小白',
   tagline: '用代码解决问题，用文字记录思考。',
   bio: '这里是我记录所学、与同好交流的小小窗口，也是督促自己不断精进的自留地。\n愿每一位到访的你，都能有所收获、心生共鸣。',
   email: 'admin@24811213.xyz', status: 'available',
+  bg_light: '', bg_dark: '',
 };
 
 const DEFAULT_STATS = [
@@ -115,18 +116,164 @@ function crudAPI(table, columns) {
 
 const SECTIONS = {
   stats: crudAPI('stats', ['label', 'value', 'icon']),
-  nav: crudAPI('nav_items', ['label', 'icon', 'section_id']),
+  nav: crudAPI('nav_items', ['label', 'icon', 'section_id', 'url']),
   blog: crudAPI('blog_posts', ['title', 'excerpt', 'date', 'tags', 'url']),
   projects: crudAPI('projects', ['name', 'description', 'tags', 'stars', 'language', 'language_color', 'url', 'icon']),
   resources: crudAPI('resources', ['title', 'description', 'category', 'icon', 'url']),
   socials: crudAPI('socials', ['name', 'handle', 'url', 'icon']),
+  blogSources: crudAPI('blog_sources', ['name', 'url']),
+  githubSources: crudAPI('github_sources', ['username']),
 };
+
+// ── GitHub 仓库拉取 ──
+const LANG_COLORS = {
+  JavaScript: '#f1e05a', TypeScript: '#3178c6', Python: '#3572A5', Golang: '#00ADD8', Go: '#00ADD8',
+  Java: '#b07219', 'C++': '#f34b7d', C: '#555555', 'C#': '#178600', PHP: '#4F5D95',
+  Ruby: '#701516', Rust: '#dea584', Swift: '#F05138', Kotlin: '#A97BFF', Dart: '#00B4AB',
+  HTML: '#e34c26', CSS: '#563d7c', SCSS: '#c6538c', Vue: '#41b883', Shell: '#89e051',
+  PowerShell: '#012456', Dockerfile: '#384d54', Makefile: '#427819', Lua: '#000080',
+  'Jupyter Notebook': '#DA5B0B', Blade: '#f7523f', batchfile: '#C1F12E',
+};
+
+async function fetchGitHubRepos(env) {
+  const sources = await env.DB.prepare('SELECT username FROM github_sources ORDER BY sort_order ASC, id ASC').all();
+  if (!sources.results.length) return null;
+  const ttl = 60 * 60 * 1000; // 1 小时缓存
+  const now = Date.now();
+  const all = [];
+
+  for (const src of sources.results.slice(0, 3)) {
+    const username = (src.username || '').trim();
+    if (!username) continue;
+    // 先读缓存
+    const cached = await env.DB.prepare('SELECT repos, updated_at FROM github_repos_cache WHERE username = ?').bind(username).first();
+    if (cached && (now - new Date(cached.updated_at + 'Z').getTime()) < ttl) {
+      try { all.push(...JSON.parse(cached.repos)); continue; } catch {}
+    }
+    // 拉取（GitHub API 按更新时间，取前 30 个）
+    try {
+      const res = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}/repos?per_page=30&sort=pushed`, {
+        headers: { 'User-Agent': 'qinghome/1.0', 'Accept': 'application/vnd.github.v3+json' },
+        cf: { cacheTtl: 600, cacheEverything: true },
+      });
+      if (!res.ok) { if (cached) { try { all.push(...JSON.parse(cached.repos)); } catch {} } continue; }
+      const data = await res.json();
+      const repos = data
+        .filter(r => !r.fork)
+        .map(r => ({
+          name: r.name,
+          description: r.description || '',
+          tags: r.topics ? r.topics.slice(0, 2).join(',') : '',
+          stars: r.stargazers_count || 0,
+          language: r.language || '',
+          language_color: LANG_COLORS[r.language] || '#8b85a5',
+          url: r.html_url,
+          icon: 'fa-brands fa-github',
+          homepage: r.homepage || '',
+        }));
+      if (repos.length) {
+        all.push(...repos);
+        await env.DB.prepare('INSERT OR REPLACE INTO github_repos_cache (username, repos, updated_at) VALUES (?, ?, datetime(\'now\'))')
+          .bind(username, JSON.stringify(repos)).run();
+      } else if (cached) {
+        try { all.push(...JSON.parse(cached.repos)); } catch {}
+      }
+    } catch {
+      if (cached) { try { all.push(...JSON.parse(cached.repos)); } catch {} }
+    }
+  }
+
+  if (!all.length) return null;
+  // 按 star 数倒序
+  all.sort((a, b) => b.stars - a.stars);
+  return all;
+}
+
+// ── RSS / Atom 拉取与解析 ──
+function xmlText(xml, tag) {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i'));
+  if (!m) return '';
+  return m[1]
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .trim();
+}
+
+function parseFeed(xml) {
+  // Atom
+  if (/<feed[\s>]/i.test(xml)) {
+    const entries = xml.split(/<entry[\s>]/i).slice(1);
+    return entries.map(e => {
+      const linkMatch = e.match(/<link[^>]*href="([^"]+)"[^>]*\/?>/i);
+      const linkRel = e.match(/<link[^>]*rel="alternate"[^>]*href="([^"]+)"/i);
+      return {
+        title: xmlText(e, 'title'),
+        url: (linkRel && linkRel[1]) || (linkMatch && linkMatch[1]) || '',
+        excerpt: xmlText(e, 'summary') || xmlText(e, 'content'),
+        date: (xmlText(e, 'updated') || xmlText(e, 'published')).slice(0, 10),
+        tags: '',
+      };
+    }).filter(p => p.title && p.url);
+  }
+  // RSS 2.0
+  const items = xml.split(/<item[\s>]/i).slice(1);
+  return items.map(e => ({
+    title: xmlText(e, 'title'),
+    url: xmlText(e, 'link'),
+    excerpt: xmlText(e, 'description'),
+    date: (xmlText(e, 'pubDate') || '').slice(0, 16),
+    tags: (e.match(/<category[^>]*>([\s\S]*?)<\/category>/gi) || [])
+      .map(c => xmlText(c.replace(/^<category[^>]*>/i, ''), 'category'))
+      .slice(0, 3).join(','),
+  })).filter(p => p.title && p.url);
+}
+
+async function fetchBlogPosts(env) {
+  const sources = await env.DB.prepare('SELECT name, url FROM blog_sources ORDER BY sort_order ASC, id ASC').all();
+  if (!sources.results.length) return null;
+  const ttl = 60 * 60 * 1000; // 1 小时缓存
+  const now = Date.now();
+  const all = [];
+
+  for (const src of sources.results.slice(0, 5)) {
+    if (!src.url) continue;
+    // 先读缓存
+    const cached = await env.DB.prepare('SELECT posts, updated_at FROM blog_fetch_cache WHERE source = ?').bind(src.url).first();
+    if (cached && (now - new Date(cached.updated_at + 'Z').getTime()) < ttl) {
+      try { all.push(...JSON.parse(cached.posts)); continue; } catch {}
+    }
+    // 拉取
+    try {
+      const res = await fetch(src.url, {
+        headers: { 'User-Agent': 'qinghome/1.0', 'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml' },
+        cf: { cacheTtl: 600, cacheEverything: true },
+      });
+      if (!res.ok) continue;
+      const text = await res.text();
+      const posts = parseFeed(text).slice(0, 10).map(p => ({ ...p, source: src.name || new URL(src.url).hostname }));
+      if (posts.length) {
+        all.push(...posts);
+        await env.DB.prepare('INSERT OR REPLACE INTO blog_fetch_cache (source, posts, updated_at) VALUES (?, ?, datetime(\'now\'))')
+          .bind(src.url, JSON.stringify(posts)).run();
+      } else if (cached) {
+        try { all.push(...JSON.parse(cached.posts)); } catch {}
+      }
+    } catch {}
+  }
+
+  if (!all.length) return null;
+  // 按日期倒序取最新
+  all.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return all;
+}
 
 // ── 建表（仅首次请求执行）──
 const TABLES_SQL = [
   `CREATE TABLE IF NOT EXISTS admin_users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`,
   `CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL UNIQUE, user_id INTEGER NOT NULL, expires_at TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`,
-  `CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT DEFAULT '', brand TEXT DEFAULT '', avatar TEXT DEFAULT '', title TEXT DEFAULT '', tagline TEXT DEFAULT '', bio TEXT DEFAULT '', email TEXT DEFAULT '', status TEXT DEFAULT 'available')`,
+  `CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT DEFAULT '', brand TEXT DEFAULT '', avatar TEXT DEFAULT '', title TEXT DEFAULT '', tagline TEXT DEFAULT '', bio TEXT DEFAULT '', email TEXT DEFAULT '', status TEXT DEFAULT 'available', bg_light TEXT DEFAULT '', bg_dark TEXT DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', value TEXT DEFAULT '', icon TEXT DEFAULT '', sort_order INTEGER DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS blog_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT DEFAULT '', excerpt TEXT DEFAULT '', date TEXT DEFAULT '', tags TEXT DEFAULT '', url TEXT DEFAULT '', sort_order INTEGER DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT DEFAULT '', description TEXT DEFAULT '', tags TEXT DEFAULT '', stars INTEGER DEFAULT 0, language TEXT DEFAULT '', language_color TEXT DEFAULT '', url TEXT DEFAULT '', icon TEXT DEFAULT 'fa-brands fa-github', sort_order INTEGER DEFAULT 0)`,
@@ -136,12 +283,27 @@ const TABLES_SQL = [
   `CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
   `CREATE TABLE IF NOT EXISTS gh_stars_cache (repo TEXT PRIMARY KEY, stars INTEGER NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS blog_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT DEFAULT '', url TEXT DEFAULT '', sort_order INTEGER DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS blog_fetch_cache (source TEXT PRIMARY KEY, posts TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS github_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT DEFAULT '', sort_order INTEGER DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS github_repos_cache (username TEXT PRIMARY KEY, repos TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+];
+
+// 字段迁移：为已有 profile 表补充新字段
+const MIGRATIONS = [
+  `ALTER TABLE profile ADD COLUMN bg_light TEXT DEFAULT ''`,
+  `ALTER TABLE profile ADD COLUMN bg_dark TEXT DEFAULT ''`,
+  `ALTER TABLE nav_items ADD COLUMN url TEXT DEFAULT ''`,
 ];
 
 async function ensureTables(env) {
   if (_initialized) return;
   for (const sql of TABLES_SQL) {
     await env.DB.prepare(sql).run();
+  }
+  // 字段迁移（忽略已存在的列）
+  for (const sql of MIGRATIONS) {
+    try { await env.DB.prepare(sql).run(); } catch (e) { /* 字段已存在则忽略 */ }
   }
   // 清理过期会话
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
@@ -154,8 +316,8 @@ async function seedIfEmpty(env) {
   if (count > 0) return;
 
   const stmts = [
-    env.DB.prepare('INSERT INTO profile (name,brand,avatar,title,tagline,bio,email,status) VALUES (?,?,?,?,?,?,?,?)')
-      .bind(DEFAULT_PROFILE.name, DEFAULT_PROFILE.brand, DEFAULT_PROFILE.avatar, DEFAULT_PROFILE.title, DEFAULT_PROFILE.tagline, DEFAULT_PROFILE.bio, DEFAULT_PROFILE.email, DEFAULT_PROFILE.status),
+    env.DB.prepare('INSERT INTO profile (name,brand,avatar,title,tagline,bio,email,status,bg_light,bg_dark) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .bind(DEFAULT_PROFILE.name, DEFAULT_PROFILE.brand, DEFAULT_PROFILE.avatar, DEFAULT_PROFILE.title, DEFAULT_PROFILE.tagline, DEFAULT_PROFILE.bio, DEFAULT_PROFILE.email, DEFAULT_PROFILE.status, DEFAULT_PROFILE.bg_light, DEFAULT_PROFILE.bg_dark),
   ];
   DEFAULT_STATS.forEach((s, i) => stmts.push(env.DB.prepare('INSERT INTO stats (label,value,icon,sort_order) VALUES (?,?,?,?)').bind(s.label, s.value, s.icon, i)));
   DEFAULT_NAV.forEach((n, i) => stmts.push(env.DB.prepare('INSERT INTO nav_items (label,icon,section_id,sort_order) VALUES (?,?,?,?)').bind(n.label, n.icon, n.section_id, i)));
@@ -184,6 +346,13 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const { pathname } = url;
 
+  // WeChat 域名验证文件
+  if (pathname === '/f759bbb741d044c4812d3e58a1bbba82.txt') {
+    return new Response('5303f99a895a861fdcd8cf5cad3c7d4e16289426', {
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS' } });
   }
@@ -193,6 +362,18 @@ async function handleRequest(request, env) {
 
   // ── 公开配置 ──
   if (pathname === '/api/public/config' && request.method === 'GET') return getPublicConfig(env);
+
+  // ── 自动拉取的最新博文（公开） ──
+  if (pathname === '/api/public/blog-posts' && request.method === 'GET') {
+    const posts = await fetchBlogPosts(env);
+    return json({ posts: posts || [] });
+  }
+
+  // ── 自动拉取的 GitHub 仓库（公开） ──
+  if (pathname === '/api/public/github-repos' && request.method === 'GET') {
+    const repos = await fetchGitHubRepos(env);
+    return json({ repos: repos || [] });
+  }
 
   // ── Auth ──
   if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, env);
@@ -284,17 +465,17 @@ async function handleRequest(request, env) {
       const data = await parseJSON(request);
       const { count } = await env.DB.prepare('SELECT COUNT(*) as count FROM profile').first();
       if (count > 0) {
-        await env.DB.prepare('UPDATE profile SET name=?,brand=?,avatar=?,title=?,tagline=?,bio=?,email=?,status=? WHERE id=(SELECT id FROM profile LIMIT 1)')
-          .bind(data.name, data.brand, data.avatar, data.title, data.tagline, data.bio, data.email, data.status).run();
+        await env.DB.prepare('UPDATE profile SET name=?,brand=?,avatar=?,title=?,tagline=?,bio=?,email=?,status=?,bg_light=?,bg_dark=? WHERE id=(SELECT id FROM profile LIMIT 1)')
+          .bind(data.name, data.brand, data.avatar, data.title, data.tagline, data.bio, data.email, data.status, data.bg_light || '', data.bg_dark || '').run();
       } else {
-        await env.DB.prepare('INSERT INTO profile (name,brand,avatar,title,tagline,bio,email,status) VALUES (?,?,?,?,?,?,?,?)')
-          .bind(data.name, data.brand, data.avatar, data.title, data.tagline, data.bio, data.email, data.status).run();
+        await env.DB.prepare('INSERT INTO profile (name,brand,avatar,title,tagline,bio,email,status,bg_light,bg_dark) VALUES (?,?,?,?,?,?,?,?,?,?)')
+          .bind(data.name, data.brand, data.avatar, data.title, data.tagline, data.bio, data.email, data.status, data.bg_light || '', data.bg_dark || '').run();
       }
       return json({ ok: true });
     }
 
     // 通用 CRUD 路由
-    const sectionMatch = sectionPath.match(/^config\/(stats|nav|blog|projects|resources|socials)(?:\/(\d+))?$/);
+    const sectionMatch = sectionPath.match(/^config\/(stats|nav|blog|projects|resources|socials|blogSources|githubSources)(?:\/(\d+))?$/);
     if (sectionMatch) {
       const section = sectionMatch[1];
       const id = sectionMatch[2] ? parseInt(sectionMatch[2]) : null;
@@ -358,7 +539,7 @@ async function logout(request, env) {
 
 async function getPublicConfig(env) {
   const db = env.DB;
-  const [profile, stats, navItems, blogPosts, projects, resources, socials] = await Promise.all([
+  const [profile, stats, navItems, blogPosts, projects, resources, socials, blogSources, githubSources] = await Promise.all([
     db.prepare('SELECT * FROM profile LIMIT 1').first(),
     db.prepare('SELECT * FROM stats ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
     db.prepare('SELECT * FROM nav_items ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
@@ -366,6 +547,8 @@ async function getPublicConfig(env) {
     db.prepare('SELECT * FROM projects ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
     db.prepare('SELECT * FROM resources ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
     db.prepare('SELECT * FROM socials ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
+    db.prepare('SELECT * FROM blog_sources ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
+    db.prepare('SELECT * FROM github_sources ORDER BY sort_order ASC, id ASC').all().then(r => r.results),
   ]);
   return json({
     profile: profile || DEFAULT_PROFILE,
@@ -375,6 +558,8 @@ async function getPublicConfig(env) {
     projects: projects.length ? projects : DEFAULT_PROJECTS,
     resources: resources.length ? resources : DEFAULT_RESOURCES,
     socials: socials.length ? socials : DEFAULT_SOCIALS,
+    blogSources: blogSources || [],
+    githubSources: githubSources || [],
   });
 }
 
